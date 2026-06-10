@@ -70,3 +70,22 @@ def list_attempts_for_job(
     )
 
     return list(db.scalars(query).all())
+
+def fail_job_attempt(
+    db: Session,
+    *,
+    attempt: JobAttempt,
+    error_message: str,
+) -> JobAttempt:
+    now = utc_now()
+
+    attempt.status = AttemptStatus.FAILED.value
+    attempt.finished_at = now
+    attempt.error_message = error_message
+
+    duration = now - attempt.started_at
+    attempt.duration_ms = int(duration.total_seconds() * 1000)
+
+    db.flush()
+
+    return attempt

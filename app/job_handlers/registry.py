@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from app.job_handlers import sleep, sum_numbers
+from app.job_handlers import fail_randomly, sleep, sum_numbers
 
 
 JobHandler = Callable[[dict[str, Any]], dict[str, Any]]
@@ -10,6 +10,7 @@ JobHandler = Callable[[dict[str, Any]], dict[str, Any]]
 JOB_HANDLERS: dict[str, JobHandler] = {
     "sleep": sleep.run,
     "sum_numbers": sum_numbers.run,
+    "fail_randomly": fail_randomly.run,
 }
 
 
