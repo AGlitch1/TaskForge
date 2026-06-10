@@ -16,6 +16,8 @@ from app.services.queue_service import (
     remove_ready_job,
     remove_ready_job_by_id_string,
 )
+from app.models.job_attempt import JobAttempt
+from app.services.attempt_service import complete_job_attempt, start_job_attempt
 
 
 def claim_job(
@@ -71,15 +73,17 @@ def claim_job(
 
     return claimed_job
 
-
 def complete_job(
     db: Session,
     *,
     job: Job,
     worker_id: str,
     result: dict,
+    attempt: JobAttempt,
 ) -> Job:
     now = utc_now()
+
+    complete_job_attempt(db, attempt=attempt)
 
     job.status = JobStatus.COMPLETED.value
     job.result = result
@@ -98,14 +102,16 @@ def complete_job(
         new_status=JobStatus.COMPLETED.value,
         message="Job completed successfully.",
         worker_id=worker_id,
-        metadata={"result": result},
+        metadata={
+            "result": result,
+            "attempt_number": attempt.attempt_number,
+        },
     )
 
     db.commit()
     db.refresh(job)
 
     return job
-
 
 def run_one_job(db: Session, *, worker_id: str) -> bool:
     redis_client = get_redis_client()
@@ -133,6 +139,14 @@ def run_one_job(db: Session, *, worker_id: str) -> bool:
 
     remove_ready_job(redis_client, job_id=job.id)
 
+    attempt = start_job_attempt(
+        db,
+        job_id=job.id,
+        worker_id=worker_id,
+    )
+    db.commit()
+    db.refresh(attempt)
+
     validated_payload = validate_payload_for_job_type(
         job.job_type,
         job.payload,
@@ -146,6 +160,7 @@ def run_one_job(db: Session, *, worker_id: str) -> bool:
         job=job,
         worker_id=worker_id,
         result=result,
+        attempt=attempt,
     )
 
     return True

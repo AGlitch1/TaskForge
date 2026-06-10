@@ -16,6 +16,8 @@ from app.services.fingerprint_service import create_request_fingerprint
 from app.models.job_event import JobEvent
 from app.core.redis import get_redis_client
 from app.services.queue_service import enqueue_ready_job
+from app.models.job_attempt import JobAttempt
+from app.services.attempt_service import list_attempts_for_job
 
 def create_job(
     db: Session,
@@ -190,3 +192,11 @@ def list_job_events(
     )
 
     return list(db.scalars(query).all())
+
+def list_job_attempts(
+    db: Session,
+    *,
+    job_id: uuid.UUID,
+) -> list[JobAttempt]:
+    get_job_or_404(db, job_id)
+    return list_attempts_for_job(db, job_id=job_id)

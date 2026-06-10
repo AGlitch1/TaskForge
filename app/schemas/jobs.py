@@ -65,3 +65,19 @@ class JobEventResponse(BaseModel):
     model_config = {
         "from_attributes": True
     }
+
+class JobAttemptResponse(BaseModel):
+    id: uuid.UUID
+    job_id: uuid.UUID
+    worker_id: str | None
+    attempt_number: int
+    status: str
+    started_at: datetime
+    finished_at: datetime | None
+    duration_ms: int | None
+    error_message: str | None
+    created_at: datetime
+
+    model_config = {
+        "from_attributes": True
+    }

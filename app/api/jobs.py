@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.enums import JobStatus
 from app.schemas.jobs import (
+    JobAttemptResponse,
     JobCreateRequest,
     JobEventResponse,
     JobListResponse,
@@ -15,6 +16,7 @@ from app.schemas.jobs import (
 from app.services.job_service import (
     create_job,
     get_job_or_404,
+    list_job_attempts,
     list_job_events,
     list_jobs,
 )
@@ -86,6 +88,16 @@ def list_job_events_endpoint(
     events = list_job_events(db, job_id=job_id)
     return [JobEventResponse.model_validate(event) for event in events]
 
+@router.get(
+    "/{job_id}/attempts",
+    response_model=list[JobAttemptResponse],
+)
+def list_job_attempts_endpoint(
+    job_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> list[JobAttemptResponse]:
+    attempts = list_job_attempts(db, job_id=job_id)
+    return [JobAttemptResponse.model_validate(attempt) for attempt in attempts]
 
 @router.get(
     "/{job_id}",
