@@ -14,6 +14,8 @@ from app.schemas.payloads import validate_payload_for_job_type
 from app.services.event_service import create_job_event
 from app.services.fingerprint_service import create_request_fingerprint
 from app.models.job_event import JobEvent
+from app.core.redis import get_redis_client
+from app.services.queue_service import enqueue_ready_job
 
 def create_job(
     db: Session,
@@ -88,6 +90,14 @@ def create_job(
     )
 
     if initial_status == JobStatus.QUEUED:
+        redis_client = get_redis_client()
+        enqueue_ready_job(
+            redis_client,
+            job_id=job.id,
+            priority=job.priority,
+            queued_at=now,
+        )
+
         create_job_event(
             db,
             job_id=job.id,
