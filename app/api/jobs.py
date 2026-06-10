@@ -6,8 +6,18 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.enums import JobStatus
-from app.schemas.jobs import JobCreateRequest, JobListResponse, JobResponse
-from app.services.job_service import create_job, get_job_or_404, list_jobs
+from app.schemas.jobs import (
+    JobCreateRequest,
+    JobEventResponse,
+    JobListResponse,
+    JobResponse,
+)
+from app.services.job_service import (
+    create_job,
+    get_job_or_404,
+    list_job_events,
+    list_jobs,
+)
 
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -29,18 +39,6 @@ def create_job_endpoint(
         idempotency_key=idempotency_key,
     )
 
-    return JobResponse.model_validate(job)
-
-
-@router.get(
-    "/{job_id}",
-    response_model=JobResponse,
-)
-def get_job_endpoint(
-    job_id: uuid.UUID,
-    db: Session = Depends(get_db),
-) -> JobResponse:
-    job = get_job_or_404(db, job_id)
     return JobResponse.model_validate(job)
 
 
@@ -75,3 +73,27 @@ def list_jobs_endpoint(
         offset=offset,
         total=total,
     )
+
+
+@router.get(
+    "/{job_id}/events",
+    response_model=list[JobEventResponse],
+)
+def list_job_events_endpoint(
+    job_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> list[JobEventResponse]:
+    events = list_job_events(db, job_id=job_id)
+    return [JobEventResponse.model_validate(event) for event in events]
+
+
+@router.get(
+    "/{job_id}",
+    response_model=JobResponse,
+)
+def get_job_endpoint(
+    job_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> JobResponse:
+    job = get_job_or_404(db, job_id)
+    return JobResponse.model_validate(job)

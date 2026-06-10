@@ -13,7 +13,7 @@ from app.schemas.jobs import JobCreateRequest
 from app.schemas.payloads import validate_payload_for_job_type
 from app.services.event_service import create_job_event
 from app.services.fingerprint_service import create_request_fingerprint
-
+from app.models.job_event import JobEvent
 
 def create_job(
     db: Session,
@@ -165,3 +165,18 @@ def list_jobs(
     total = db.scalar(count_query) or 0
 
     return jobs, total
+
+def list_job_events(
+    db: Session,
+    *,
+    job_id: uuid.UUID,
+) -> list[JobEvent]:
+    get_job_or_404(db, job_id)
+
+    query = (
+        select(JobEvent)
+        .where(JobEvent.job_id == job_id)
+        .order_by(JobEvent.created_at.asc())
+    )
+
+    return list(db.scalars(query).all())

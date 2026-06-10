@@ -50,3 +50,18 @@ class JobListResponse(BaseModel):
     limit: int
     offset: int
     total: int
+
+class JobEventResponse(BaseModel):
+    id: uuid.UUID
+    job_id: uuid.UUID
+    event_type: str
+    old_status: str | None
+    new_status: str | None
+    message: str | None
+    worker_id: str | None
+    event_metadata: dict[str, Any] | None
+    created_at: datetime
+
+    model_config = {
+        "from_attributes": True
+    }
