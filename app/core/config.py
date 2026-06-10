@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     worker_poll_interval_seconds: int = 1
     worker_heartbeat_interval_seconds: int = 5
-    dead_worker_timeout_seconds: int = 20
+    dead_worker_timeout_seconds: int = 30
 
     job_lease_seconds: int = 30
     lease_renew_interval_seconds: int = 10
