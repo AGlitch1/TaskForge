@@ -64,3 +64,25 @@ def peek_ready_jobs(
 
 def clear_ready_queue(redis_client: Redis) -> None:
     redis_client.delete(READY_JOBS_KEY)
+
+def pop_ready_job_candidate(redis_client: Redis) -> str | None:
+    """
+    Get the highest-priority ready job candidate.
+
+    This only reads the candidate from Redis.
+    PostgreSQL still decides whether the claim is valid.
+    """
+
+    job_ids = redis_client.zrange(READY_JOBS_KEY, 0, 0)
+
+    if not job_ids:
+        return None
+
+    return job_ids[0]
+
+def remove_ready_job_by_id_string(
+    redis_client: Redis,
+    *,
+    job_id: str,
+) -> None:
+    redis_client.zrem(READY_JOBS_KEY, job_id)
