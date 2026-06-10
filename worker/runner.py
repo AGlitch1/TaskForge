@@ -22,6 +22,8 @@ from app.services.attempt_service import (
     fail_job_attempt,
     start_job_attempt,
 )
+from app.services.worker_service import mark_worker_busy, mark_worker_idle
+
 
 def calculate_retry_delay_seconds(retry_count: int) -> int:
     """
@@ -126,6 +128,8 @@ def complete_job(
             "attempt_number": attempt.attempt_number,
         },
     )
+    
+    mark_worker_idle(db, worker_id=worker_id)
 
     db.commit()
     db.refresh(job)
@@ -229,6 +233,7 @@ def mark_job_failed_or_retrying(
             },
         )
 
+    mark_worker_idle(db, worker_id=worker_id)
     db.commit()
     db.refresh(job)
 
@@ -259,6 +264,13 @@ def run_one_job(db: Session, *, worker_id: str) -> bool:
         return False
 
     remove_ready_job(redis_client, job_id=job.id)
+
+    mark_worker_busy(
+        db,
+        worker_id=worker_id,
+        job_id=str(job.id),
+    )
+    db.commit()
 
     attempt = start_job_attempt(
         db,

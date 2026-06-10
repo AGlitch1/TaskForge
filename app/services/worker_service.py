@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import WorkerStatus
@@ -42,3 +43,83 @@ def register_worker(
     db.refresh(worker)
 
     return worker
+
+
+def update_worker_heartbeat(
+    db: Session,
+    *,
+    worker_id: str,
+) -> None:
+    worker = db.get(Worker, worker_id)
+
+    if worker is None:
+        return
+
+    now = utc_now()
+    worker.last_heartbeat_at = now
+    worker.updated_at = now
+
+    db.commit()
+
+
+def mark_worker_busy(
+    db: Session,
+    *,
+    worker_id: str,
+    job_id: str,
+) -> None:
+    worker = db.get(Worker, worker_id)
+
+    if worker is None:
+        return
+
+    now = utc_now()
+    worker.status = WorkerStatus.BUSY.value
+    worker.current_job_id = job_id
+    worker.last_heartbeat_at = now
+    worker.updated_at = now
+
+    db.flush()
+
+
+def mark_worker_idle(
+    db: Session,
+    *,
+    worker_id: str,
+) -> None:
+    worker = db.get(Worker, worker_id)
+
+    if worker is None:
+        return
+
+    now = utc_now()
+    worker.status = WorkerStatus.IDLE.value
+    worker.current_job_id = None
+    worker.last_heartbeat_at = now
+    worker.updated_at = now
+
+    db.flush()
+
+
+def mark_worker_stopped(
+    db: Session,
+    *,
+    worker_id: str,
+) -> None:
+    worker = db.get(Worker, worker_id)
+
+    if worker is None:
+        return
+
+    now = utc_now()
+    worker.status = WorkerStatus.STOPPED.value
+    worker.current_job_id = None
+    worker.stopped_at = now
+    worker.updated_at = now
+
+    db.commit()
+
+
+def list_workers(db: Session) -> list[Worker]:
+    query = select(Worker).order_by(Worker.started_at.desc())
+    return list(db.scalars(query).all())

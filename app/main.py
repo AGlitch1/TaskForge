@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.api.jobs import router as jobs_router
 from app.api.queue import router as queue_router
+from app.api.workers import router as workers_router
 from app.core.config import get_settings
 
 
@@ -24,3 +25,4 @@ def health_check() -> dict[str, str]:
 
 app.include_router(jobs_router)
 app.include_router(queue_router)
+app.include_router(workers_router)
