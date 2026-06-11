@@ -1,0 +1,109 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: taskforge-postgres
+    environment:
+      POSTGRES_USER: taskforge
+      POSTGRES_PASSWORD: taskforge
+      POSTGRES_DB: taskforge
+    ports:
+      - "5433:5432"
+    volumes:
+      - taskforge_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskforge -d taskforge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: taskforge-redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    container_name: taskforge-api
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log"
+    environment:
+      APP_NAME: TaskForge
+      APP_ENV: docker
+      DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg://taskforge:taskforge@postgres:5432/taskforge
+      REDIS_URL: redis://redis:6379/0
+      WORKER_POLL_INTERVAL_SECONDS: 1
+      WORKER_HEARTBEAT_INTERVAL_SECONDS: 5
+      SCHEDULER_INTERVAL_SECONDS: 5
+      DEAD_WORKER_TIMEOUT_SECONDS: 30
+      JOB_LEASE_SECONDS: 30
+    ports:
+      - "8000:8000"
+    volumes:
+      - taskforge_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    container_name: taskforge-worker
+    command: python3 -m worker.main
+    environment:
+      APP_NAME: TaskForge
+      APP_ENV: docker
+      DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg://taskforge:taskforge@postgres:5432/taskforge
+      REDIS_URL: redis://redis:6379/0
+      WORKER_POLL_INTERVAL_SECONDS: 1
+      WORKER_HEARTBEAT_INTERVAL_SECONDS: 5
+      SCHEDULER_INTERVAL_SECONDS: 5
+      DEAD_WORKER_TIMEOUT_SECONDS: 30
+      JOB_LEASE_SECONDS: 30
+    volumes:
+      - taskforge_logs:/app/logs
+    depends_on:
+      api:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build: .
+    container_name: taskforge-scheduler
+    command: python3 -m scheduler.main
+    environment:
+      APP_NAME: TaskForge
+      APP_ENV: docker
+      DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg://taskforge:taskforge@postgres:5432/taskforge
+      REDIS_URL: redis://redis:6379/0
+      WORKER_POLL_INTERVAL_SECONDS: 1
+      WORKER_HEARTBEAT_INTERVAL_SECONDS: 5
+      SCHEDULER_INTERVAL_SECONDS: 5
+      DEAD_WORKER_TIMEOUT_SECONDS: 30
+      JOB_LEASE_SECONDS: 30
+    volumes:
+      - taskforge_logs:/app/logs
+    depends_on:
+      api:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  taskforge_postgres_data:
+  taskforge_logs:
