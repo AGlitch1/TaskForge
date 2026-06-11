@@ -23,7 +23,7 @@ from app.services.attempt_service import (
     start_job_attempt,
 )
 from app.services.worker_service import mark_worker_busy, mark_worker_idle
-
+from app.core.config import get_settings
 
 def calculate_retry_delay_seconds(retry_count: int) -> int:
     """
@@ -48,6 +48,8 @@ def claim_job(
     worker_id: str,
 ) -> Job | None:
     now = utc_now()
+    
+    settings = get_settings()
 
     statement = (
         update(Job)
@@ -56,7 +58,7 @@ def claim_job(
         .values(
             status=JobStatus.RUNNING.value,
             leased_by=worker_id,
-            lease_expires_at=now + timedelta(seconds=30),
+            lease_expires_at=now + timedelta(seconds=settings.job_lease_seconds),
             started_at=now,
             updated_at=now,
         )

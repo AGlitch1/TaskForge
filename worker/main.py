@@ -9,7 +9,7 @@ from app.core.database import SessionLocal
 from app.services.worker_service import register_worker, mark_worker_stopped
 from worker.heartbeat import heartbeat_loop
 from worker.runner import run_one_job
-
+from worker.lease_renewer import lease_renewal_loop
 
 def build_worker_id() -> str:
     hostname = socket.gethostname()
@@ -48,6 +48,16 @@ def main() -> None:
     )
     heartbeat_thread.start()
 
+    lease_renewal_thread = threading.Thread(
+        target=lease_renewal_loop,
+        kwargs={
+            "worker_id": worker_id,
+            "stop_event": stop_event,
+        },
+        daemon=True,
+    )
+    lease_renewal_thread.start()
+    
     try:
         while True:
             with SessionLocal() as db:
@@ -62,12 +72,12 @@ def main() -> None:
     finally:
         stop_event.set()
         heartbeat_thread.join(timeout=2)
+        lease_renewal_thread.join(timeout=2)
 
         with SessionLocal() as db:
             mark_worker_stopped(db, worker_id=worker_id)
 
         print(f"[worker] stopped worker_id={worker_id}")
-
-
+    
 if __name__ == "__main__":
     main()
