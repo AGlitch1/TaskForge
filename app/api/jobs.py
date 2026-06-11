@@ -3,7 +3,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, Query, status
 from sqlalchemy.orm import Session
-
+from uuid import UUID
 from app.core.database import get_db
 from app.core.enums import JobStatus
 from app.schemas.jobs import (
@@ -19,6 +19,14 @@ from app.services.job_service import (
     list_job_attempts,
     list_job_events,
     list_jobs,
+)
+from app.services.job_service import (
+    create_job,
+    get_job_or_404,
+    list_job_attempts,
+    list_job_events,
+    list_jobs,
+    cancel_job,
 )
 
 
@@ -108,4 +116,15 @@ def get_job_endpoint(
     db: Session = Depends(get_db),
 ) -> JobResponse:
     job = get_job_or_404(db, job_id)
+    return JobResponse.model_validate(job)
+
+@router.post(
+    "/{job_id}/cancel",
+    response_model=JobResponse,
+)
+def cancel_job_endpoint(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+) -> JobResponse:
+    job = cancel_job(db, job_id=job_id)
     return JobResponse.model_validate(job)

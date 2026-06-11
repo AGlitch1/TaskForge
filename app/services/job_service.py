@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-
+from uuid import UUID
 from app.core.enums import JobEventType, JobStatus
 from app.core.time import utc_now
 from app.models.job import Job
@@ -18,6 +18,9 @@ from app.core.redis import get_redis_client
 from app.services.queue_service import enqueue_ready_job
 from app.models.job_attempt import JobAttempt
 from app.services.attempt_service import list_attempts_for_job
+from app.services.queue_service import remove_ready_job
+from app.core.redis import get_redis_client
+
 
 def create_job(
     db: Session,
@@ -200,3 +203,54 @@ def list_job_attempts(
 ) -> list[JobAttempt]:
     get_job_or_404(db, job_id)
     return list_attempts_for_job(db, job_id=job_id)
+
+def cancel_job(
+    db: Session,
+    *,
+    job_id: UUID,
+) -> Job:
+    job = get_job_or_404(db, job_id)
+
+    cancellable_statuses = {
+        JobStatus.QUEUED.value,
+        JobStatus.SCHEDULED.value,
+        JobStatus.RETRYING.value,
+    }
+
+    if job.status == JobStatus.CANCELLED.value:
+        return job
+
+    if job.status not in cancellable_statuses:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot cancel job with status {job.status}.",
+        )
+
+    old_status = job.status
+    now = utc_now()
+
+    if job.status == JobStatus.QUEUED.value:
+        redis_client = get_redis_client()
+        remove_ready_job(redis_client, job_id=job.id)
+
+    job.status = JobStatus.CANCELLED.value
+    job.cancelled_at = now
+    job.updated_at = now
+    job.progress_message = "Job was cancelled before execution."
+
+    create_job_event(
+        db,
+        job_id=job.id,
+        event_type=JobEventType.JOB_CANCELLED.value,
+        old_status=old_status,
+        new_status=JobStatus.CANCELLED.value,
+        message="Job was cancelled before execution.",
+        metadata={
+            "cancelled_at": now.isoformat(),
+        },
+    )
+
+    db.commit()
+    db.refresh(job)
+
+    return job
