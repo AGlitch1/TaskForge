@@ -28,7 +28,15 @@ from app.services.job_service import (
     list_jobs,
     cancel_job,
 )
-
+from app.services.job_service import (
+    cancel_job,
+    create_job,
+    get_job_or_404,
+    list_job_attempts,
+    list_job_events,
+    list_jobs,
+    replay_dead_job,
+)
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -127,4 +135,15 @@ def cancel_job_endpoint(
     db: Session = Depends(get_db),
 ) -> JobResponse:
     job = cancel_job(db, job_id=job_id)
+    return JobResponse.model_validate(job)
+
+@router.post(
+    "/{job_id}/replay",
+    response_model=JobResponse,
+)
+def replay_dead_job_endpoint(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+) -> JobResponse:
+    job = replay_dead_job(db, job_id=job_id)
     return JobResponse.model_validate(job)

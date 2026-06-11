@@ -254,3 +254,75 @@ def cancel_job(
     db.refresh(job)
 
     return job
+
+def replay_dead_job(
+    db: Session,
+    *,
+    job_id: UUID,
+) -> Job:
+    original_job = get_job_or_404(db, job_id)
+
+    if original_job.status != JobStatus.DEAD.value:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Only DEAD jobs can be replayed. Current status is {original_job.status}.",
+        )
+
+    now = utc_now()
+
+    new_job = Job(
+        job_type=original_job.job_type,
+        payload=original_job.payload,
+        priority=original_job.priority,
+        max_retries=original_job.max_retries,
+        retry_count=0,
+        status=JobStatus.QUEUED.value,
+        scheduled_at=None,
+        next_run_at=None,
+        result=None,
+        error_message=None,
+        progress_percent=0,
+        progress_message="Replayed from dead job.",
+        replayed_from_job_id=original_job.id,
+    )
+
+    db.add(new_job)
+    db.flush()
+
+    create_job_event(
+        db,
+        job_id=new_job.id,
+        event_type=JobEventType.JOB_CREATED.value,
+        old_status=None,
+        new_status=JobStatus.CREATED.value,
+        message="Job replayed from dead job.",
+        metadata={
+            "replayed_from_job_id": str(original_job.id),
+        },
+    )
+
+    create_job_event(
+        db,
+        job_id=new_job.id,
+        event_type=JobEventType.JOB_QUEUED.value,
+        old_status=JobStatus.CREATED.value,
+        new_status=JobStatus.QUEUED.value,
+        message="Replayed job queued for execution.",
+        metadata={
+            "replayed_from_job_id": str(original_job.id),
+        },
+    )
+
+    redis_client = get_redis_client()
+
+    enqueue_ready_job(
+        redis_client,
+        job_id=new_job.id,
+        priority=new_job.priority,
+        queued_at=now,
+    )
+
+    db.commit()
+    db.refresh(new_job)
+
+    return new_job
