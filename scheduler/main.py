@@ -43,7 +43,7 @@ def run_scheduler_cycle() -> None:
 
 
 def main() -> None:
-    configure_logging()
+    configure_logging(service_name="scheduler")
 
     settings = get_settings()
 

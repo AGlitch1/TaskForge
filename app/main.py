@@ -4,7 +4,10 @@ from app.api.jobs import router as jobs_router
 from app.api.queue import router as queue_router
 from app.api.workers import router as workers_router
 from app.core.config import get_settings
+from app.core.logging import configure_logging
 
+
+configure_logging(service_name="api", log_to_console=False)
 
 settings = get_settings()
 

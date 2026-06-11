@@ -1,41 +1,63 @@
-import json
 import logging
 import sys
-from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Any
 
 
-class JsonFormatter(logging.Formatter):
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+
+
+FILE_LOG_FORMAT = (
+    "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+)
+
+CONSOLE_LOG_FORMAT = "%(levelname)s : %(message)s"
+
+
+class ExtraFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        log_data: dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
+        message = super().format(record)
 
         extra_fields = getattr(record, "extra_fields", None)
 
-        if isinstance(extra_fields, dict):
-            log_data.update(extra_fields)
+        if isinstance(extra_fields, dict) and extra_fields:
+            extra_string = " ".join(
+                f"{key}={value}" for key, value in extra_fields.items()
+            )
+            message = f"{message} - {extra_string}"
 
-        if record.exc_info:
-            log_data["exception"] = self.formatException(record.exc_info)
-
-        return json.dumps(log_data, default=str)
+        return message
 
 
-def configure_logging() -> None:
+def configure_logging(
+    *,
+    service_name: str,
+    log_to_console: bool = True,
+) -> None:
     root_logger = logging.getLogger()
-
-    if root_logger.handlers:
-        root_logger.handlers.clear()
-
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JsonFormatter())
-
-    root_logger.addHandler(handler)
     root_logger.setLevel(logging.INFO)
+    root_logger.handlers.clear()
+
+    file_formatter = ExtraFormatter(FILE_LOG_FORMAT)
+
+    file_handler = RotatingFileHandler(
+        LOG_DIR / f"{service_name}.log",
+        maxBytes=5_000_000,
+        backupCount=5,
+    )
+    file_handler.setFormatter(file_formatter)
+    file_handler.setLevel(logging.INFO)
+    root_logger.addHandler(file_handler)
+
+    if log_to_console:
+        console_formatter = logging.Formatter(CONSOLE_LOG_FORMAT)
+
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(console_formatter)
+        console_handler.setLevel(logging.INFO)
+        root_logger.addHandler(console_handler)
 
 
 def get_logger(name: str) -> logging.Logger:

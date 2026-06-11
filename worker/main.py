@@ -23,7 +23,7 @@ def build_worker_id() -> str:
 
 
 def main() -> None:
-    configure_logging()
+    configure_logging(service_name="worker")
 
     settings = get_settings()
 
