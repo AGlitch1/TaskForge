@@ -2,15 +2,18 @@ import os
 import signal
 import socket
 import threading
-import time
 import uuid
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.core.logging import configure_logging, get_logger, log_extra
 from app.services.worker_service import mark_worker_stopped, register_worker
 from worker.heartbeat import heartbeat_loop
 from worker.lease_renewer import lease_renewal_loop
 from worker.runner import run_one_job
+
+
+logger = get_logger("taskforge.worker")
 
 
 def build_worker_id() -> str:
@@ -20,6 +23,8 @@ def build_worker_id() -> str:
 
 
 def main() -> None:
+    configure_logging()
+
     settings = get_settings()
 
     hostname = socket.gethostname()
@@ -31,18 +36,40 @@ def main() -> None:
 
     def handle_shutdown_signal(signum, frame) -> None:
         if not shutdown_requested.is_set():
-            print(
-                "[worker] shutdown requested; "
-                "will finish current job and stop polling"
+            logger.info(
+                "worker_shutdown_requested",
+                extra=log_extra(
+                    service="worker",
+                    event="worker_shutdown_requested",
+                    worker_id=worker_id,
+                    signal=signum,
+                ),
             )
             shutdown_requested.set()
         else:
-            print("[worker] shutdown already requested; waiting for current job")
+            logger.info(
+                "worker_shutdown_already_requested",
+                extra=log_extra(
+                    service="worker",
+                    event="worker_shutdown_already_requested",
+                    worker_id=worker_id,
+                    signal=signum,
+                ),
+            )
 
     signal.signal(signal.SIGINT, handle_shutdown_signal)
     signal.signal(signal.SIGTERM, handle_shutdown_signal)
 
-    print(f"[worker] starting worker_id={worker_id}")
+    logger.info(
+        "worker_started",
+        extra=log_extra(
+            service="worker",
+            event="worker_started",
+            worker_id=worker_id,
+            hostname=hostname,
+            process_id=process_id,
+        ),
+    )
 
     with SessionLocal() as db:
         register_worker(
@@ -52,7 +79,14 @@ def main() -> None:
             process_id=process_id,
         )
 
-    print(f"[worker] registered worker_id={worker_id}")
+    logger.info(
+        "worker_registered",
+        extra=log_extra(
+            service="worker",
+            event="worker_registered",
+            worker_id=worker_id,
+        ),
+    )
 
     heartbeat_thread = threading.Thread(
         target=heartbeat_loop,
@@ -90,7 +124,14 @@ def main() -> None:
         with SessionLocal() as db:
             mark_worker_stopped(db, worker_id=worker_id)
 
-        print(f"[worker] stopped worker_id={worker_id}")
+        logger.info(
+            "worker_stopped",
+            extra=log_extra(
+                service="worker",
+                event="worker_stopped",
+                worker_id=worker_id,
+            ),
+        )
 
 
 if __name__ == "__main__":
