@@ -4,6 +4,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from scheduler.dead_workers import mark_stale_workers_dead
 from scheduler.lease_recovery import recover_expired_leases
+from scheduler.queue_reconciliation import reconcile_queued_jobs
 from scheduler.retry_jobs import release_due_retrying_jobs
 from scheduler.scheduled_jobs import release_due_scheduled_jobs
 
@@ -14,14 +15,22 @@ def run_scheduler_cycle() -> None:
         recovered_leases_count = recover_expired_leases(db)
         scheduled_count = release_due_scheduled_jobs(db)
         retrying_count = release_due_retrying_jobs(db)
+        reconciled_count = reconcile_queued_jobs(db)
 
-    if dead_workers_count or recovered_leases_count or scheduled_count or retrying_count:
+    if (
+        dead_workers_count
+        or recovered_leases_count
+        or scheduled_count
+        or retrying_count
+        or reconciled_count
+    ):
         print(
             "[scheduler] cycle result "
             f"dead_workers={dead_workers_count} "
             f"recovered_leases={recovered_leases_count} "
             f"scheduled={scheduled_count} "
-            f"retrying={retrying_count}"
+            f"retrying={retrying_count} "
+            f"reconciled={reconciled_count}"
         )
 
 
