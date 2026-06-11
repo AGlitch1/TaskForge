@@ -1,12 +1,50 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.enums import JobEventType, JobStatus
+from app.core.enums import AttemptStatus, JobEventType, JobStatus
 from app.core.redis import get_redis_client
 from app.core.time import utc_now
 from app.models.job import Job
+from app.models.job_attempt import JobAttempt
 from app.services.event_service import create_job_event
 from app.services.queue_service import enqueue_ready_job
+
+
+def fail_running_attempt_for_recovered_job(
+    db: Session,
+    *,
+    job: Job,
+    error_message: str,
+) -> None:
+    """
+    Mark the latest RUNNING attempt for this job as FAILED.
+
+    This happens when a worker crashes after starting an attempt,
+    and the scheduler later recovers the expired job lease.
+    """
+
+    now = utc_now()
+
+    query = (
+        select(JobAttempt)
+        .where(JobAttempt.job_id == job.id)
+        .where(JobAttempt.status == AttemptStatus.RUNNING.value)
+        .order_by(JobAttempt.attempt_number.desc())
+        .limit(1)
+    )
+
+    attempt = db.scalar(query)
+
+    if attempt is None:
+        return
+
+    attempt.status = AttemptStatus.FAILED.value
+    attempt.finished_at = now
+    attempt.error_message = error_message
+
+    if attempt.started_at is not None:
+        duration = now - attempt.started_at
+        attempt.duration_ms = int(duration.total_seconds() * 1000)
 
 
 def recover_expired_leases(db: Session) -> int:
@@ -38,6 +76,14 @@ def recover_expired_leases(db: Session) -> int:
         old_worker_id = job.leased_by
         old_lease_expires_at = job.lease_expires_at
 
+        fail_running_attempt_for_recovered_job(
+            db,
+            job=job,
+            error_message=(
+                "Job attempt abandoned because the worker lease expired."
+            ),
+        )
+
         job.status = JobStatus.QUEUED.value
         job.leased_by = None
         job.lease_expires_at = None
@@ -66,6 +112,7 @@ def recover_expired_leases(db: Session) -> int:
                 if old_lease_expires_at
                 else None,
                 "recovered_at": now.isoformat(),
+                "abandoned_attempt_marked_failed": True,
             },
         )
 
