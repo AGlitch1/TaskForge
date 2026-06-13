@@ -9,9 +9,12 @@ class Settings(BaseSettings):
     debug: bool = True
 
     database_url: str
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str
 
-    worker_poll_interval_seconds: int = 1
+    test_database_url: str | None = None
+    test_redis_url: str | None = None
+
+    worker_poll_interval_seconds: float = 1.0
     worker_heartbeat_interval_seconds: int = 5
     dead_worker_timeout_seconds: int = 30
 
@@ -22,7 +25,7 @@ class Settings(BaseSettings):
     scheduler_lock_ttl_seconds: int = 10
 
     max_retries_default: int = 3
-
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
