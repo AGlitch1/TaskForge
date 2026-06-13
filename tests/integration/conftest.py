@@ -23,9 +23,6 @@ TEST_REDIS_URL = os.getenv(
 def test_engine():
     engine = create_engine(TEST_DATABASE_URL)
 
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-
     yield engine
 
     Base.metadata.drop_all(bind=engine)
@@ -34,6 +31,9 @@ def test_engine():
 
 @pytest.fixture()
 def db_session(test_engine):
+    Base.metadata.drop_all(bind=test_engine)
+    Base.metadata.create_all(bind=test_engine)
+
     TestingSessionLocal = sessionmaker(
         autocommit=False,
         autoflush=False,
@@ -45,8 +45,8 @@ def db_session(test_engine):
     try:
         yield db
     finally:
-        db.rollback()
         db.close()
+        Base.metadata.drop_all(bind=test_engine)
 
 
 @pytest.fixture()
