@@ -515,6 +515,86 @@ The CI workflow starts PostgreSQL and Redis service containers, installs depende
 pytest
 ```
 
+## Load Testing
+
+TaskForge includes a small load testing script that submits many jobs to the API quickly.
+
+The goal of this script is not to fully benchmark production performance. Instead, it gives a simple local sanity check that the API can accept a burst of jobs and that workers can drain the Redis-backed ready queue.
+
+### Run the Load Test
+
+Make sure the API, worker, and scheduler are running.
+
+Terminal 1:
+
+```bash
+uvicorn app.main:app --reload --no-access-log
+```
+
+Terminal 2:
+
+```bash
+python3 -m worker.main
+```
+
+Terminal 3:
+
+```bash
+python3 -m scheduler.main
+```
+
+Then run the load test:
+
+```bash
+python3 scripts/load_test.py --jobs 100
+```
+
+### Example Result
+
+On a local development machine, TaskForge submitted 100 jobs successfully:
+
+```text
+Submitted 100 jobs in 0.62 seconds
+Submission rate: 161.90 jobs/second
+```
+
+### Verify Processing
+
+After submitting jobs, check system metrics:
+
+```bash
+curl http://localhost:8000/admin/metrics
+```
+
+Useful metrics:
+
+```text
+taskforge_jobs_queued
+taskforge_jobs_running
+taskforge_jobs_completed
+taskforge_jobs_dead
+taskforge_ready_queue_depth
+```
+
+A healthy result should show completed jobs increasing and the ready queue depth eventually returning to zero:
+
+```text
+taskforge_jobs_completed 100
+taskforge_ready_queue_depth 0
+```
+
+### What This Demonstrates
+
+This load test demonstrates that TaskForge can:
+
+- accept a burst of job creation requests
+- persist jobs durably in PostgreSQL
+- enqueue ready jobs in Redis
+- allow workers to process jobs asynchronously
+- expose system state through metrics
+
+This is a lightweight development load test, not a production benchmark.
+
 ## Logging
 
 TaskForge uses Python’s built-in logging library.
