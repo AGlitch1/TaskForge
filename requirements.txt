@@ -9,4 +9,4 @@ redis
 python-json-logger
 prometheus-client
 requests
-python-dotenv
+python-dotenvhttpx
