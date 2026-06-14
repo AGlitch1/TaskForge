@@ -1,5 +1,7 @@
 # TaskForge
 
+![CI](https://github.com/AGlitch1/TaskForge/actions/workflows/ci.yml/badge.svg)
+
 TaskForge is a distributed job scheduler built with **FastAPI**, **PostgreSQL**, **Redis**, and Python worker processes.
 
 It is designed to demonstrate real distributed-systems concepts: durable job state, Redis-backed queueing, worker heartbeats, retries, scheduled jobs, lease renewal, crash recovery, queue reconciliation, idempotency, and observable job history.
