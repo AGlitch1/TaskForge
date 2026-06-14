@@ -1,6 +1,8 @@
 # TaskForge
 
-![CI](https://github.com/AGlitch1/TaskForge/actions/workflows/ci.yml/badge.svg)
+# TaskForge
+
+[![CI](https://github.com/AGlitch1/TaskForge/actions/workflows/ci.yml/badge.svg)](https://github.com/AGlitch1/TaskForge/actions/workflows/ci.yml)
 
 TaskForge is a distributed job scheduler built with **FastAPI**, **PostgreSQL**, **Redis**, and Python worker processes.
 
