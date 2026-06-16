@@ -1,8 +1,13 @@
+import asyncio
+import inspect
+from collections.abc import Callable
+from typing import Any
+
 from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
 from app.core.enums import JobEventType, JobStatus
@@ -24,7 +29,7 @@ from app.services.queue_service import (
 from app.services.worker_service import mark_worker_busy, mark_worker_idle
 from app.schemas.payloads import validate_payload_for_job_type
 from app.job_handlers.registry import get_job_handler
-
+from worker.context import JobContext
 
 logger = get_logger("taskforge.worker.runner")
 
@@ -37,6 +42,38 @@ def calculate_retry_delay_seconds(retry_count: int) -> int:
     }
 
     return retry_delays.get(retry_count, 120)
+
+
+def create_context_session_factory(db: Session) -> Callable[[], Session]:
+    return sessionmaker(
+        bind=db.get_bind(),
+        autocommit=False,
+        autoflush=False,
+    )
+
+
+def handler_accepts_context(handler: Callable[..., Any]) -> bool:
+    signature = inspect.signature(handler)
+    return len(signature.parameters) >= 2
+
+
+def execute_handler(
+    handler: Callable[..., Any],
+    payload: dict[str, Any],
+    context: JobContext,
+) -> dict[str, Any]:
+    if handler_accepts_context(handler):
+        result = handler(payload, context)
+    else:
+        result = handler(payload)
+
+    if inspect.isawaitable(result):
+        result = asyncio.run(result)
+
+    if not isinstance(result, dict):
+        raise TypeError("Job handler must return a dictionary result.")
+
+    return result
 
 
 def claim_job(
@@ -58,6 +95,7 @@ def claim_job(
             lease_expires_at=now + timedelta(seconds=settings.job_lease_seconds),
             started_at=now,
             updated_at=now,
+            progress_percent=0,
             progress_message="Job claimed by worker.",
         )
         .returning(Job)
@@ -337,7 +375,20 @@ def run_one_job(
         )
 
         handler = get_job_handler(job.job_type)
-        result = handler(validated_payload)
+
+        context = JobContext(
+            job_id=job.id,
+            worker_id=worker_id,
+            attempt_id=attempt.id,
+            attempt_number=attempt.attempt_number,
+            session_factory=create_context_session_factory(db),
+        )
+
+        result = execute_handler(
+            handler=handler,
+            payload=validated_payload,
+            context=context,
+        )
 
     except Exception as exc:
         logger.exception(

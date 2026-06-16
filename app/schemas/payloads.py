@@ -25,12 +25,17 @@ class GenerateReportPayload(BaseModel):
     rows: int = Field(ge=1, le=100_000)
 
 
+class ProgressDemoPayload(BaseModel):
+    steps: int = Field(default=3, ge=1, le=20)
+
+
 PAYLOAD_SCHEMA_BY_JOB_TYPE = {
     "sleep": SleepPayload,
     "sum_numbers": SumNumbersPayload,
     "fail_randomly": FailRandomlyPayload,
     "webhook": WebhookPayload,
     "generate_report": GenerateReportPayload,
+    "progress_demo": ProgressDemoPayload,
 }
 
 

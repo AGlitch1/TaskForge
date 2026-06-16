@@ -1,10 +1,17 @@
 from collections.abc import Callable
 from typing import Any
 
-from app.job_handlers import fail_randomly, sleep, sum_numbers,generate_report,webhook
+from app.job_handlers import (
+    fail_randomly,
+    generate_report,
+    progress_demo,
+    sleep,
+    sum_numbers,
+    webhook,
+)
 
 
-JobHandler = Callable[[dict[str, Any]], dict[str, Any]]
+JobHandler = Callable[..., Any]
 
 
 JOB_HANDLERS: dict[str, JobHandler] = {
@@ -13,7 +20,9 @@ JOB_HANDLERS: dict[str, JobHandler] = {
     "fail_randomly": fail_randomly.run,
     "generate_report": generate_report.run,
     "webhook": webhook.run,
+    "progress_demo": progress_demo.run,
 }
+
 
 def get_job_handler(job_type: str) -> JobHandler:
     handler = JOB_HANDLERS.get(job_type)
