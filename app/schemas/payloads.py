@@ -7,6 +7,10 @@ class SleepPayload(BaseModel):
     duration_seconds: int = Field(ge=1, le=300)
 
 
+class AsyncSleepPayload(BaseModel):
+    duration_seconds: float = Field(gt=0, le=300)
+
+
 class SumNumbersPayload(BaseModel):
     numbers: list[float] = Field(min_length=1)
 
@@ -31,6 +35,7 @@ class ProgressDemoPayload(BaseModel):
 
 PAYLOAD_SCHEMA_BY_JOB_TYPE = {
     "sleep": SleepPayload,
+    "async_sleep": AsyncSleepPayload,
     "sum_numbers": SumNumbersPayload,
     "fail_randomly": FailRandomlyPayload,
     "webhook": WebhookPayload,

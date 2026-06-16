@@ -34,6 +34,10 @@ from worker.context import JobContext
 logger = get_logger("taskforge.worker.runner")
 
 
+class JobTimeoutError(RuntimeError):
+    pass
+
+
 def calculate_retry_delay_seconds(retry_count: int) -> int:
     retry_delays = {
         1: 5,
@@ -61,6 +65,7 @@ def execute_handler(
     handler: Callable[..., Any],
     payload: dict[str, Any],
     context: JobContext,
+    timeout_seconds: int,
 ) -> dict[str, Any]:
     if handler_accepts_context(handler):
         result = handler(payload, context)
@@ -68,7 +73,12 @@ def execute_handler(
         result = handler(payload)
 
     if inspect.isawaitable(result):
-        result = asyncio.run(result)
+        try:
+            result = asyncio.run(asyncio.wait_for(result, timeout=timeout_seconds))
+        except TimeoutError as exc:
+            raise JobTimeoutError(
+                f"Job timed out after {timeout_seconds} seconds."
+            ) from exc
 
     if not isinstance(result, dict):
         raise TypeError("Job handler must return a dictionary result.")
@@ -275,6 +285,7 @@ def run_one_job(
     *,
     worker_id: str,
 ) -> bool:
+    settings = get_settings()
     redis_client = get_redis_client()
 
     candidate_job_id = pop_ready_job_candidate(redis_client)
@@ -375,6 +386,11 @@ def run_one_job(
         )
 
         handler = get_job_handler(job.job_type)
+        timeout_seconds = (
+            job.timeout_seconds
+            if job.timeout_seconds is not None
+            else settings.default_job_timeout_seconds
+        )
 
         context = JobContext(
             job_id=job.id,
@@ -388,7 +404,49 @@ def run_one_job(
             handler=handler,
             payload=validated_payload,
             context=context,
+            timeout_seconds=timeout_seconds,
         )
+
+    except JobTimeoutError as exc:
+        error_message = str(exc)
+
+        logger.exception(
+            "job_timed_out",
+            extra=log_extra(
+                service="worker",
+                event="job_timed_out",
+                worker_id=worker_id,
+                job_id=str(job.id),
+                job_type=job.job_type,
+                attempt_number=attempt.attempt_number,
+                error_message=error_message,
+            ),
+        )
+
+        create_job_event(
+            db,
+            job_id=job.id,
+            event_type=JobEventType.JOB_TIMED_OUT.value,
+            old_status=JobStatus.RUNNING.value,
+            new_status=JobStatus.RUNNING.value,
+            message=error_message,
+            worker_id=worker_id,
+            metadata={
+                "attempt_id": str(attempt.id),
+                "attempt_number": attempt.attempt_number,
+                "timeout_seconds": timeout_seconds,
+            },
+        )
+
+        mark_job_failed_or_retrying(
+            db,
+            job=job,
+            worker_id=worker_id,
+            attempt=attempt,
+            error_message=error_message,
+        )
+
+        return True
 
     except Exception as exc:
         logger.exception(

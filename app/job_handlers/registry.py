@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 from app.job_handlers import (
+    async_sleep,
     fail_randomly,
     generate_report,
     progress_demo,
@@ -16,6 +17,7 @@ JobHandler = Callable[..., Any]
 
 JOB_HANDLERS: dict[str, JobHandler] = {
     "sleep": sleep.run,
+    "async_sleep": async_sleep.run,
     "sum_numbers": sum_numbers.run,
     "fail_randomly": fail_randomly.run,
     "generate_report": generate_report.run,
