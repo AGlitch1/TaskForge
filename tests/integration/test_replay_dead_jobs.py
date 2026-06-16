@@ -14,6 +14,7 @@ def test_replay_dead_job_creates_new_queued_job(db_session, redis_client):
         status=JobStatus.DEAD.value,
         priority=5,
         max_retries=3,
+        timeout_seconds=120,
         retry_count=3,
         error_message="Original job failed.",
         progress_percent=0,
@@ -37,6 +38,7 @@ def test_replay_dead_job_creates_new_queued_job(db_session, redis_client):
     assert replayed_job.payload == original_job.payload
     assert replayed_job.priority == original_job.priority
     assert replayed_job.max_retries == original_job.max_retries
+    assert replayed_job.timeout_seconds == original_job.timeout_seconds
     assert replayed_job.retry_count == 0
     assert replayed_job.replayed_from_job_id == original_job.id
     assert replayed_job.error_message is None

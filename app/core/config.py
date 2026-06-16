@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     scheduler_lock_ttl_seconds: int = 10
 
     max_retries_default: int = 3
+    default_job_timeout_seconds: int = 300
+    max_job_timeout_seconds: int = 86_400
     
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from uuid import UUID
+from app.core.config import get_settings
 from app.core.enums import JobEventType, JobStatus
 from app.core.time import utc_now
 from app.models.job import Job
@@ -28,6 +29,20 @@ def create_job(
     request: JobCreateRequest,
     idempotency_key: str | None,
 ) -> Job:
+    settings = get_settings()
+
+    if (
+        request.timeout_seconds is not None
+        and request.timeout_seconds > settings.max_job_timeout_seconds
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "timeout_seconds must be less than or equal to "
+                f"{settings.max_job_timeout_seconds}."
+            ),
+        )
+
     try:
         validated_payload = validate_payload_for_job_type(
             request.job_type,
@@ -48,6 +63,7 @@ def create_job(
             priority=request.priority,
             scheduled_at=request.scheduled_at,
             max_retries=request.max_retries,
+            timeout_seconds=request.timeout_seconds,
         )
 
         existing_job = db.scalar(
@@ -76,6 +92,7 @@ def create_job(
         priority=request.priority,
         scheduled_at=request.scheduled_at,
         max_retries=request.max_retries,
+        timeout_seconds=request.timeout_seconds,
         retry_count=0,
         progress_percent=0,
         idempotency_key=idempotency_key,
@@ -275,6 +292,7 @@ def replay_dead_job(
         payload=original_job.payload,
         priority=original_job.priority,
         max_retries=original_job.max_retries,
+        timeout_seconds=original_job.timeout_seconds,
         retry_count=0,
         status=JobStatus.QUEUED.value,
         scheduled_at=None,

@@ -18,6 +18,7 @@ def create_request_fingerprint(
     priority: int,
     scheduled_at: datetime | None,
     max_retries: int,
+    timeout_seconds: int | None,
 ) -> str:
     normalized = {
         "job_type": job_type,
@@ -25,6 +26,7 @@ def create_request_fingerprint(
         "priority": priority,
         "scheduled_at": scheduled_at,
         "max_retries": max_retries,
+        "timeout_seconds": timeout_seconds,
     }
 
     encoded = json.dumps(

@@ -13,6 +13,7 @@ class JobCreateRequest(BaseModel):
     priority: int = Field(default=5, ge=1, le=10)
     scheduled_at: datetime | None = None
     max_retries: int = Field(default=3, ge=0, le=10)
+    timeout_seconds: int | None = Field(default=None, gt=0)
 
 
 class JobResponse(BaseModel):
@@ -24,6 +25,7 @@ class JobResponse(BaseModel):
     scheduled_at: datetime | None
     next_run_at: datetime | None
     max_retries: int
+    timeout_seconds: int | None
     retry_count: int
     result: dict[str, Any] | None
     error_message: str | None

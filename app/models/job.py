@@ -42,6 +42,7 @@ class Job(Base):
     )
 
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    timeout_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)

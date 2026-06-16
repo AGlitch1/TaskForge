@@ -48,6 +48,25 @@ def test_worker_completes_sum_numbers_job(db_session, redis_client):
     }
 
 
+def test_create_job_stores_timeout_seconds(db_session, redis_client):
+    request = JobCreateRequest(
+        job_type="sum_numbers",
+        payload={"numbers": [1, 2, 3]},
+        priority=5,
+        scheduled_at=None,
+        max_retries=3,
+        timeout_seconds=120,
+    )
+
+    job = create_job(
+        db_session,
+        request=request,
+        idempotency_key="integration-timeout-1",
+    )
+
+    assert job.timeout_seconds == 120
+
+
 def test_worker_marks_failing_job_dead_when_no_retries(db_session, redis_client):
     worker = register_worker(
         db_session,
