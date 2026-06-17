@@ -56,7 +56,6 @@ services:
 
   worker:
     build: .
-    container_name: taskforge-worker
     command: python3 -m worker.main
     environment:
       APP_NAME: TaskForge
