@@ -8,9 +8,17 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.enums import JobStatus, WorkerStatus
+from app.core.logging import get_logger, log_extra
+from app.core.redis import get_redis_client
 from app.core.time import utc_now
 from app.models.job import Job
 from app.models.worker import Worker
+from app.services.concurrency_service import (
+    is_job_type_limited,
+    refresh_concurrency_slot,
+)
+
+logger = get_logger("taskforge.worker.lease_renewer")
 
 
 def renew_current_job_lease(
@@ -51,6 +59,29 @@ def renew_current_job_lease(
 
     db.commit()
 
+    if not is_job_type_limited(job.job_type):
+        return
+
+    try:
+        refresh_concurrency_slot(
+            get_redis_client(),
+            job_type=job.job_type,
+            job_id=str(job.id),
+            ttl_seconds=settings.job_lease_seconds,
+        )
+    except Exception as exc:
+        logger.warning(
+            "job_concurrency_slot_refresh_failed",
+            extra=log_extra(
+                service="worker",
+                event="job_concurrency_slot_refresh_failed",
+                worker_id=worker_id,
+                job_id=str(job.id),
+                job_type=job.job_type,
+                error_message=str(exc),
+            ),
+        )
+
 
 def lease_renewal_loop(
     *,
@@ -65,4 +96,4 @@ def lease_renewal_loop(
         with SessionLocal() as db:
             renew_current_job_lease(db, worker_id=worker_id)
 
-        stop_event.wait(renew_interval_seconds) 
+        stop_event.wait(renew_interval_seconds)

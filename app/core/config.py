@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,7 +28,9 @@ class Settings(BaseSettings):
     max_retries_default: int = 3
     default_job_timeout_seconds: int = 300
     max_job_timeout_seconds: int = 86_400
-    
+    job_type_concurrency_limits: dict[str, int] = Field(default_factory=dict)
+    concurrency_defer_seconds: int = 3
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

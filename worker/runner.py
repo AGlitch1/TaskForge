@@ -21,10 +21,18 @@ from app.services.attempt_service import (
     fail_job_attempt,
     start_job_attempt,
 )
+from app.services.concurrency_service import (
+    get_concurrency_limit,
+    release_concurrency_slot,
+    try_acquire_concurrency_slot,
+)
 from app.services.event_service import create_job_event
 from app.services.queue_service import (
+    defer_ready_job_for_concurrency,
     pop_ready_job_candidate,
+    release_due_concurrency_deferred_jobs,
     remove_ready_job,
+    remove_ready_job_by_id_string,
 )
 from app.services.worker_service import mark_worker_busy, mark_worker_idle
 from app.schemas.payloads import validate_payload_for_job_type
@@ -280,6 +288,92 @@ def mark_job_failed_or_retrying(
     return job
 
 
+def defer_job_for_concurrency(
+    db: Session,
+    *,
+    redis_client,
+    job: Job,
+    worker_id: str,
+    limit: int,
+) -> None:
+    settings = get_settings()
+    deferred_until = utc_now() + timedelta(seconds=settings.concurrency_defer_seconds)
+
+    defer_ready_job_for_concurrency(
+        redis_client,
+        job_id=job.id,
+        ready_at=deferred_until,
+    )
+
+    create_job_event(
+        db,
+        job_id=job.id,
+        event_type=JobEventType.JOB_CONCURRENCY_DEFERRED.value,
+        old_status=JobStatus.QUEUED.value,
+        new_status=JobStatus.QUEUED.value,
+        message="Job deferred because its job type is at concurrency capacity.",
+        worker_id=worker_id,
+        metadata={
+            "job_type": job.job_type,
+            "limit": limit,
+            "defer_seconds": settings.concurrency_defer_seconds,
+            "deferred_until": deferred_until.isoformat(),
+        },
+    )
+
+    db.commit()
+
+
+def record_concurrency_acquire_failed(
+    db: Session,
+    *,
+    job: Job,
+    worker_id: str,
+    limit: int,
+    error_message: str,
+) -> None:
+    create_job_event(
+        db,
+        job_id=job.id,
+        event_type=JobEventType.JOB_CONCURRENCY_ACQUIRE_FAILED.value,
+        old_status=JobStatus.QUEUED.value,
+        new_status=JobStatus.QUEUED.value,
+        message="Job concurrency slot acquisition failed.",
+        worker_id=worker_id,
+        metadata={
+            "job_type": job.job_type,
+            "limit": limit,
+            "error_message": error_message,
+        },
+    )
+
+    db.commit()
+
+
+def release_job_concurrency_slot(
+    *,
+    redis_client,
+    job: Job,
+) -> None:
+    try:
+        release_concurrency_slot(
+            redis_client,
+            job_type=job.job_type,
+            job_id=str(job.id),
+        )
+    except Exception as exc:
+        logger.warning(
+            "job_concurrency_slot_release_failed",
+            extra=log_extra(
+                service="worker",
+                event="job_concurrency_slot_release_failed",
+                job_id=str(job.id),
+                job_type=job.job_type,
+                error_message=str(exc),
+            ),
+        )
+
+
 def run_one_job(
     db: Session,
     *,
@@ -287,6 +381,8 @@ def run_one_job(
 ) -> bool:
     settings = get_settings()
     redis_client = get_redis_client()
+
+    release_due_concurrency_deferred_jobs(db, redis_client=redis_client)
 
     candidate_job_id = pop_ready_job_candidate(redis_client)
 
@@ -315,7 +411,84 @@ def run_one_job(
                 job_id=candidate_job_id,
             ),
         )
+        remove_ready_job_by_id_string(redis_client, job_id=candidate_job_id)
         return False
+
+    queued_job = db.get(Job, job_uuid)
+
+    if queued_job is None or queued_job.status != JobStatus.QUEUED.value:
+        remove_ready_job(redis_client, job_id=job_uuid)
+
+        logger.info(
+            "job_candidate_skipped",
+            extra=log_extra(
+                service="worker",
+                event="job_candidate_skipped",
+                worker_id=worker_id,
+                job_id=str(job_uuid),
+                reason="Job does not exist or is not QUEUED.",
+            ),
+        )
+
+        return False
+
+    concurrency_limit = get_concurrency_limit(queued_job.job_type)
+    slot_acquired = False
+
+    if concurrency_limit is not None:
+        try:
+            slot_acquired = try_acquire_concurrency_slot(
+                redis_client,
+                job_type=queued_job.job_type,
+                job_id=str(queued_job.id),
+                limit=concurrency_limit,
+                ttl_seconds=settings.job_lease_seconds,
+            )
+        except Exception as exc:
+            logger.exception(
+                "job_concurrency_slot_acquire_failed",
+                extra=log_extra(
+                    service="worker",
+                    event="job_concurrency_slot_acquire_failed",
+                    worker_id=worker_id,
+                    job_id=str(queued_job.id),
+                    job_type=queued_job.job_type,
+                    error_message=str(exc),
+                ),
+            )
+
+            record_concurrency_acquire_failed(
+                db,
+                job=queued_job,
+                worker_id=worker_id,
+                limit=concurrency_limit,
+                error_message=str(exc),
+            )
+
+            return False
+
+        if not slot_acquired:
+            defer_job_for_concurrency(
+                db,
+                redis_client=redis_client,
+                job=queued_job,
+                worker_id=worker_id,
+                limit=concurrency_limit,
+            )
+
+            logger.info(
+                "job_concurrency_deferred",
+                extra=log_extra(
+                    service="worker",
+                    event="job_concurrency_deferred",
+                    worker_id=worker_id,
+                    job_id=str(queued_job.id),
+                    job_type=queued_job.job_type,
+                    concurrency_limit=concurrency_limit,
+                ),
+            )
+
+            return False
 
     job = claim_job(
         db,
@@ -324,6 +497,12 @@ def run_one_job(
     )
 
     if job is None:
+        if slot_acquired:
+            release_job_concurrency_slot(
+                redis_client=redis_client,
+                job=queued_job,
+            )
+
         remove_ready_job(redis_client, job_id=job_uuid)
 
         logger.info(
@@ -339,157 +518,164 @@ def run_one_job(
 
         return False
 
-    remove_ready_job(redis_client, job_id=job.id)
-
-    logger.info(
-        "job_claimed",
-        extra=log_extra(
-            service="worker",
-            event="job_claimed",
-            worker_id=worker_id,
-            job_id=str(job.id),
-            job_type=job.job_type,
-        ),
-    )
-
-    mark_worker_busy(
-        db,
-        worker_id=worker_id,
-        job_id=str(job.id),
-    )
-    db.commit()
-
-    attempt = start_job_attempt(
-        db,
-        job_id=job.id,
-        worker_id=worker_id,
-    )
-    db.commit()
-    db.refresh(attempt)
-
-    logger.info(
-        "job_started",
-        extra=log_extra(
-            service="worker",
-            event="job_started",
-            worker_id=worker_id,
-            job_id=str(job.id),
-            job_type=job.job_type,
-            attempt_number=attempt.attempt_number,
-        ),
-    )
-
     try:
-        validated_payload = validate_payload_for_job_type(
-            job_type=job.job_type,
-            payload=job.payload,
-        )
+        remove_ready_job(redis_client, job_id=job.id)
 
-        handler = get_job_handler(job.job_type)
-        timeout_seconds = (
-            job.timeout_seconds
-            if job.timeout_seconds is not None
-            else settings.default_job_timeout_seconds
-        )
-
-        context = JobContext(
-            job_id=job.id,
-            worker_id=worker_id,
-            attempt_id=attempt.id,
-            attempt_number=attempt.attempt_number,
-            session_factory=create_context_session_factory(db),
-        )
-
-        result = execute_handler(
-            handler=handler,
-            payload=validated_payload,
-            context=context,
-            timeout_seconds=timeout_seconds,
-        )
-
-    except JobTimeoutError as exc:
-        error_message = str(exc)
-
-        logger.exception(
-            "job_timed_out",
+        logger.info(
+            "job_claimed",
             extra=log_extra(
                 service="worker",
-                event="job_timed_out",
+                event="job_claimed",
                 worker_id=worker_id,
                 job_id=str(job.id),
                 job_type=job.job_type,
-                attempt_number=attempt.attempt_number,
-                error_message=error_message,
             ),
         )
 
-        create_job_event(
+        mark_worker_busy(
             db,
-            job_id=job.id,
-            event_type=JobEventType.JOB_TIMED_OUT.value,
-            old_status=JobStatus.RUNNING.value,
-            new_status=JobStatus.RUNNING.value,
-            message=error_message,
-            worker_id=worker_id,
-            metadata={
-                "attempt_id": str(attempt.id),
-                "attempt_number": attempt.attempt_number,
-                "timeout_seconds": timeout_seconds,
-            },
-        )
-
-        mark_job_failed_or_retrying(
-            db,
-            job=job,
-            worker_id=worker_id,
-            attempt=attempt,
-            error_message=error_message,
-        )
-
-        return True
-
-    except Exception as exc:
-        logger.exception(
-            "job_failed",
-            extra=log_extra(
-                service="worker",
-                event="job_failed",
-                worker_id=worker_id,
-                job_id=str(job.id),
-                job_type=job.job_type,
-                attempt_number=attempt.attempt_number,
-                error_message=str(exc),
-            ),
-        )
-
-        mark_job_failed_or_retrying(
-            db,
-            job=job,
-            worker_id=worker_id,
-            attempt=attempt,
-            error_message=str(exc),
-        )
-
-        return True
-
-    complete_job(
-        db,
-        job=job,
-        worker_id=worker_id,
-        attempt=attempt,
-        result=result,
-    )
-
-    logger.info(
-        "job_completed",
-        extra=log_extra(
-            service="worker",
-            event="job_completed",
             worker_id=worker_id,
             job_id=str(job.id),
-            job_type=job.job_type,
-            attempt_number=attempt.attempt_number,
-        ),
-    )
+        )
+        db.commit()
 
-    return True
+        attempt = start_job_attempt(
+            db,
+            job_id=job.id,
+            worker_id=worker_id,
+        )
+        db.commit()
+        db.refresh(attempt)
+
+        logger.info(
+            "job_started",
+            extra=log_extra(
+                service="worker",
+                event="job_started",
+                worker_id=worker_id,
+                job_id=str(job.id),
+                job_type=job.job_type,
+                attempt_number=attempt.attempt_number,
+            ),
+        )
+
+        try:
+            validated_payload = validate_payload_for_job_type(
+                job_type=job.job_type,
+                payload=job.payload,
+            )
+
+            handler = get_job_handler(job.job_type)
+            timeout_seconds = (
+                job.timeout_seconds
+                if job.timeout_seconds is not None
+                else settings.default_job_timeout_seconds
+            )
+
+            context = JobContext(
+                job_id=job.id,
+                worker_id=worker_id,
+                attempt_id=attempt.id,
+                attempt_number=attempt.attempt_number,
+                session_factory=create_context_session_factory(db),
+            )
+
+            result = execute_handler(
+                handler=handler,
+                payload=validated_payload,
+                context=context,
+                timeout_seconds=timeout_seconds,
+            )
+
+        except JobTimeoutError as exc:
+            error_message = str(exc)
+
+            logger.exception(
+                "job_timed_out",
+                extra=log_extra(
+                    service="worker",
+                    event="job_timed_out",
+                    worker_id=worker_id,
+                    job_id=str(job.id),
+                    job_type=job.job_type,
+                    attempt_number=attempt.attempt_number,
+                    error_message=error_message,
+                ),
+            )
+
+            create_job_event(
+                db,
+                job_id=job.id,
+                event_type=JobEventType.JOB_TIMED_OUT.value,
+                old_status=JobStatus.RUNNING.value,
+                new_status=JobStatus.RUNNING.value,
+                message=error_message,
+                worker_id=worker_id,
+                metadata={
+                    "attempt_id": str(attempt.id),
+                    "attempt_number": attempt.attempt_number,
+                    "timeout_seconds": timeout_seconds,
+                },
+            )
+
+            mark_job_failed_or_retrying(
+                db,
+                job=job,
+                worker_id=worker_id,
+                attempt=attempt,
+                error_message=error_message,
+            )
+
+            return True
+
+        except Exception as exc:
+            logger.exception(
+                "job_failed",
+                extra=log_extra(
+                    service="worker",
+                    event="job_failed",
+                    worker_id=worker_id,
+                    job_id=str(job.id),
+                    job_type=job.job_type,
+                    attempt_number=attempt.attempt_number,
+                    error_message=str(exc),
+                ),
+            )
+
+            mark_job_failed_or_retrying(
+                db,
+                job=job,
+                worker_id=worker_id,
+                attempt=attempt,
+                error_message=str(exc),
+            )
+
+            return True
+
+        complete_job(
+            db,
+            job=job,
+            worker_id=worker_id,
+            attempt=attempt,
+            result=result,
+        )
+
+        logger.info(
+            "job_completed",
+            extra=log_extra(
+                service="worker",
+                event="job_completed",
+                worker_id=worker_id,
+                job_id=str(job.id),
+                job_type=job.job_type,
+                attempt_number=attempt.attempt_number,
+            ),
+        )
+
+        return True
+    finally:
+        if slot_acquired:
+            release_job_concurrency_slot(
+                redis_client=redis_client,
+                job=job,
+            )

@@ -6,7 +6,7 @@ from app.core.redis import get_redis_client
 from app.core.time import utc_now
 from app.models.job import Job
 from app.services.event_service import create_job_event
-from app.services.queue_service import enqueue_ready_job
+from app.services.queue_service import enqueue_ready_job, is_job_concurrency_deferred
 
 
 def reconcile_queued_jobs(db: Session) -> int:
@@ -32,6 +32,9 @@ def reconcile_queued_jobs(db: Session) -> int:
 
     for job in jobs:
         job_id_string = str(job.id)
+
+        if is_job_concurrency_deferred(redis_client, job_id=job.id):
+            continue
 
         score = redis_client.zscore("ready_jobs", job_id_string)
 
