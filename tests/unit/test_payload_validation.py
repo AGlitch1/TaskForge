@@ -1,7 +1,13 @@
 import pytest
 from pydantic import ValidationError
 
+from app.job_handlers.registry import JOB_HANDLERS
+from app.schemas.payloads import PAYLOAD_SCHEMA_BY_JOB_TYPE
 from app.schemas.payloads import validate_payload_for_job_type
+
+
+def test_job_handler_registry_matches_payload_schema_registry():
+    assert set(JOB_HANDLERS) == set(PAYLOAD_SCHEMA_BY_JOB_TYPE)
 
 
 def test_sum_numbers_valid_payload():

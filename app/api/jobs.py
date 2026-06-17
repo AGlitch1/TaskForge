@@ -14,21 +14,6 @@ from app.schemas.jobs import (
     JobResponse,
 )
 from app.services.job_service import (
-    create_job,
-    get_job_or_404,
-    list_job_attempts,
-    list_job_events,
-    list_jobs,
-)
-from app.services.job_service import (
-    create_job,
-    get_job_or_404,
-    list_job_attempts,
-    list_job_events,
-    list_jobs,
-    cancel_job,
-)
-from app.services.job_service import (
     cancel_job,
     create_job,
     get_job_or_404,

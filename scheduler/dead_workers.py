@@ -13,8 +13,8 @@ def mark_stale_workers_dead(db: Session) -> int:
     """
     Mark workers as DEAD if their heartbeat is too old.
 
-    This does not recover their jobs yet.
-    Job recovery comes in the next milestone.
+    This only updates worker state. Expired RUNNING job recovery is handled
+    separately by lease recovery.
     """
 
     settings = get_settings()

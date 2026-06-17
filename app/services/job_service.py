@@ -8,19 +8,17 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 from app.core.config import get_settings
 from app.core.enums import JobEventType, JobStatus
+from app.core.redis import get_redis_client
 from app.core.time import utc_now
 from app.models.job import Job
+from app.models.job_attempt import JobAttempt
+from app.models.job_event import JobEvent
 from app.schemas.jobs import JobCreateRequest
 from app.schemas.payloads import validate_payload_for_job_type
+from app.services.attempt_service import list_attempts_for_job
 from app.services.event_service import create_job_event
 from app.services.fingerprint_service import create_request_fingerprint
-from app.models.job_event import JobEvent
-from app.core.redis import get_redis_client
-from app.services.queue_service import enqueue_ready_job
-from app.models.job_attempt import JobAttempt
-from app.services.attempt_service import list_attempts_for_job
-from app.services.queue_service import remove_ready_job
-from app.core.redis import get_redis_client
+from app.services.queue_service import enqueue_ready_job, remove_ready_job
 
 
 def create_job(
